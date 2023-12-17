@@ -1,0 +1,9 @@
+[package]
+name = "compute-shader"
+version = "0.0.0"
+
+[lib]
+crate-type = ["dylib"]
+
+[dependencies]
+spirv-std = { git = "https://github.com/EmbarkStudios/rust-gpu" }
