@@ -1,5 +1,5 @@
 [package]
-name = "transformer-compute"
+name = "myco"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,6 +9,8 @@ edition = "2021"
 bytemuck = "1.14.0"
 env_logger = "0.10.1"
 flume = "0.11.0"
+glam = "0.24.2"
+hashbrown = "0.14.3"
 pollster = "0.3.0"
 wgpu = { version = "0.18.0", features = ["spirv", "vulkan-portability"] }
 

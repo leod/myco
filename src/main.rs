@@ -1,5 +1,9 @@
-use std::str::FromStr;
+use std::{str::FromStr, sync::Arc};
+
+use glam::uvec3;
 use wgpu::util::DeviceExt;
+
+use myco::myco;
 
 // Indicates a u32 overflow in an intermediate Collatz value
 const OVERFLOW: u32 = 0xffffffff;
@@ -52,16 +56,21 @@ async fn execute_gpu(numbers: &[u32]) -> Option<Vec<u32>> {
         .await
         .unwrap();
 
-    execute_gpu_inner(&device, &queue, numbers).await
+    execute_gpu_inner(device, &queue, numbers).await
 }
 
 async fn execute_gpu_inner(
-    device: &wgpu::Device,
+    device: wgpu::Device,
     queue: &wgpu::Queue,
     numbers: &[u32],
 ) -> Option<Vec<u32>> {
+    let device = Arc::new(device);
+
     // Loads the shader from WGSL
-    let shader_source = wgpu::util::make_spirv_raw(include_bytes!(env!("compute_shader.spv")));
+    let shader_source = wgpu::util::make_spirv_raw(include_bytes!(env!(std::concat!(
+        stringify!(compute_shader),
+        ".spv"
+    ))));
     let shader_desc = wgpu::ShaderModuleDescriptor {
         label: None,
         source: wgpu::ShaderSource::SpirV(shader_source),
@@ -107,7 +116,7 @@ async fn execute_gpu_inner(
         label: None,
         layout: None,
         module: &cs_module,
-        entry_point: "main_cs",
+        entry_point: "main",
     });
 
     // Instantiates the bind group, once again specifying the binding of buffers.
@@ -125,7 +134,16 @@ async fn execute_gpu_inner(
     // It is to WebGPU what a command buffer is to Vulkan.
     let mut encoder =
         device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-    {
+
+    let myco = myco::Device::new(device.clone());
+    let grid_size = uvec3(numbers.len() as u32, 1, 1);
+
+    myco! {
+        compute_shader::main[grid_size](data);
+    }
+    .encode(&encoder);
+
+    /*{
         let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: None,
             timestamp_writes: None,
@@ -134,7 +152,8 @@ async fn execute_gpu_inner(
         cpass.set_bind_group(0, &bind_group, &[]);
         cpass.insert_debug_marker("compute collatz iterations");
         cpass.dispatch_workgroups(numbers.len() as u32, 1, 1); // Number of cells to run, the (x,y,z) size of item being processed
-    }
+    }*/
+
     // Sets adds copy operation to command encoder.
     // Will copy data from storage buffer on GPU to staging buffer on CPU.
     encoder.copy_buffer_to_buffer(&storage_buffer, 0, &staging_buffer, 0, size);
