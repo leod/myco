@@ -66,18 +66,6 @@ async fn execute_gpu_inner(
 ) -> Option<Vec<u32>> {
     let device = Arc::new(device);
 
-    // Loads the shader from WGSL
-    let shader_source = wgpu::util::make_spirv_raw(include_bytes!(env!(std::concat!(
-        stringify!(compute_shader),
-        ".spv"
-    ))));
-    let shader_desc = wgpu::ShaderModuleDescriptor {
-        label: None,
-        source: wgpu::ShaderSource::SpirV(shader_source),
-    };
-
-    let cs_module = device.create_shader_module(shader_desc);
-
     // Gets the size in bytes of the buffer.
     let size = std::mem::size_of_val(numbers) as wgpu::BufferAddress;
 
@@ -105,31 +93,6 @@ async fn execute_gpu_inner(
             | wgpu::BufferUsages::COPY_SRC,
     });
 
-    // A bind group defines how buffers are accessed by shaders.
-    // It is to WebGPU what a descriptor set is to Vulkan.
-    // `binding` here refers to the `binding` of a buffer in the shader (`layout(set = 0, binding = 0) buffer`).
-
-    // A pipeline specifies the operation of a shader
-
-    // Instantiates the pipeline.
-    let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: None,
-        layout: None,
-        module: &cs_module,
-        entry_point: "main",
-    });
-
-    // Instantiates the bind group, once again specifying the binding of buffers.
-    let bind_group_layout = compute_pipeline.get_bind_group_layout(0);
-    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: None,
-        layout: &bind_group_layout,
-        entries: &[wgpu::BindGroupEntry {
-            binding: 0,
-            resource: storage_buffer.as_entire_binding(),
-        }],
-    });
-
     // A command encoder executes one or many pipelines.
     // It is to WebGPU what a command buffer is to Vulkan.
     let mut encoder =
@@ -139,20 +102,9 @@ async fn execute_gpu_inner(
     let grid_size = uvec3(numbers.len() as u32, 1, 1);
 
     myco! {
-        compute_shader::main[grid_size](data);
+        compute_shader::main[grid_size](&storage_buffer);
     }
-    .encode(&encoder);
-
-    /*{
-        let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: None,
-            timestamp_writes: None,
-        });
-        cpass.set_pipeline(&compute_pipeline);
-        cpass.set_bind_group(0, &bind_group, &[]);
-        cpass.insert_debug_marker("compute collatz iterations");
-        cpass.dispatch_workgroups(numbers.len() as u32, 1, 1); // Number of cells to run, the (x,y,z) size of item being processed
-    }*/
+    .encode(&myco, &mut encoder);
 
     // Sets adds copy operation to command encoder.
     // Will copy data from storage buffer on GPU to staging buffer on CPU.

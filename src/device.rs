@@ -1,5 +1,6 @@
 use std::{cell::RefCell, marker::PhantomData, rc::Rc, sync::Arc};
 
+use glam::UVec3;
 use hashbrown::HashMap;
 use wgpu::util::DeviceExt as _;
 
@@ -14,17 +15,6 @@ struct Module {
     kernels: HashMap<String, Arc<Kernel>>,
 }
 
-pub struct CommandEncoder {
-    device: Device,
-    encoder: wgpu::CommandEncoder,
-}
-
-impl CommandEncoder {
-    pub fn call(&self, kernel: &Kernel, args: &[wgpu::Buffer]) {
-        
-    }
-}
-
 pub struct Device {
     device: Arc<wgpu::Device>,
     modules: Rc<RefCell<HashMap<String, Module>>>,
@@ -35,13 +25,6 @@ impl Device {
         Self {
             device,
             modules: Default::default(),
-        }
-    }
-
-    fn clone(&self) -> Device {
-        Self {
-            device: self.device.clone(),
-            modules: self.modules.clone(),
         }
     }
 
@@ -67,33 +50,7 @@ impl Device {
         }
     }
 
-    fn create_module(&self, name: &str, spirv: &[u8]) -> Module {
-        let source = wgpu::util::make_spirv_raw(spirv);
-        let descriptor = wgpu::ShaderModuleDescriptor {
-            label: Some(name),
-            source: wgpu::ShaderSource::SpirV(source),
-        };
-        let module = self.device.create_shader_module(descriptor);
-
-        Module {
-            module,
-            kernels: Default::default(),
-        }
-    }
-
-    fn create_kernel(&self, name: &str, module: &wgpu::ShaderModule) -> Kernel {
-        let pipeline = self
-            .device
-            .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some(name),
-                layout: None,
-                module: &module,
-                entry_point: "main",
-            });
-
-        Kernel { pipeline }
-    }
-
+    #[doc(hidden)]
     pub fn cache_kernel(
         &self,
         module_name: &str,
@@ -124,5 +81,66 @@ impl Device {
             })
             .1
             .clone()
+    }
+
+    #[doc(hidden)]
+    pub fn call(
+        &self,
+        kernel: &Kernel,
+        group_count: UVec3,
+        args: &[&wgpu::Buffer],
+        debug_marker: &str,
+        encoder: &mut wgpu::CommandEncoder,
+    ) {
+        let bind_group_layout = kernel.pipeline.get_bind_group_layout(0);
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &bind_group_layout,
+            entries: &args
+                .iter()
+                .enumerate()
+                .map(|(binding, arg)| wgpu::BindGroupEntry {
+                    binding: binding.try_into().unwrap(),
+                    resource: arg.as_entire_binding(),
+                })
+                .collect::<Vec<_>>(),
+        });
+
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: None,
+            timestamp_writes: None,
+        });
+
+        pass.set_pipeline(&kernel.pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.insert_debug_marker(debug_marker);
+        pass.dispatch_workgroups(group_count.x, group_count.y, group_count.z);
+    }
+
+    fn create_module(&self, name: &str, spirv: &[u8]) -> Module {
+        let source = wgpu::util::make_spirv_raw(spirv);
+        let descriptor = wgpu::ShaderModuleDescriptor {
+            label: Some(name),
+            source: wgpu::ShaderSource::SpirV(source),
+        };
+        let module = self.device.create_shader_module(descriptor);
+
+        Module {
+            module,
+            kernels: Default::default(),
+        }
+    }
+
+    fn create_kernel(&self, name: &str, module: &wgpu::ShaderModule) -> Kernel {
+        let pipeline = self
+            .device
+            .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some(name),
+                layout: None,
+                module: &module,
+                entry_point: "main",
+            });
+
+        Kernel { pipeline }
     }
 }
